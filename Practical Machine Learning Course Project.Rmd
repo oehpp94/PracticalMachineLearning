@@ -1,0 +1,104 @@
+---
+title: "Practical Machine Learning Course Project"
+output: html_document
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise as they were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har 
+
+
+## Loading and Cleaning the Data
+
+First, we load the data and perform the necessary transformations to set the data up for analysis.
+
+```{r warning = FALSE, message=FALSE}
+## Set Environment
+library(knitr)
+library(gbm)
+library(caret)
+library(rpart)
+library(randomForest)
+set.seed(12345)
+
+## Read Data
+trainSet <- read.csv("pml-training.csv")
+testSet <- read.csv("pml-testing.csv")
+str(trainSet)
+str(testSet)
+
+## Partition Training Set
+toPart <- createDataPartition(trainSet$classe, p = 0.7, list = FALSE)
+partTrain <- trainSet[toPart, ]
+partTest <- trainSet[-toPart, ]
+
+## Cleaning Transformation 1: Removing Near Zero Variance
+clean1 <- nearZeroVar(partTrain)
+partTrain <- partTrain[, -clean1]
+partTest <- partTest[, -clean1]
+
+## Cleaning Transformation 2: Removing NAs
+clean2 <- sapply(partTrain, function(x) mean(is.na(x))) > 0.95
+partTrain <- partTrain[, clean2 == FALSE]
+partTest <- partTest[, clean2 == FALSE]
+
+## Cleaning Transformation 3: Removing Unnecesary Variables (IDs)
+partTrain <- partTrain[, -(1:5)]
+partTest <- partTest[, -(1:5)]
+
+## Results
+dim(partTrain)
+dim(partTest)
+```
+
+
+## Building the Models
+
+Second, we design 3 models to cross-validate our in sample test data and compare their results to decide which one works best.
+
+```{r warning = FALSE}
+## Decision Tree
+dtMod <- rpart(classe ~ ., data = partTrain, method ="class")
+dtModPredict <- predict(dtMod, partTest, type ="class")
+dtModCMat <- confusionMatrix(dtModPredict, partTest$classe)
+dtModAccuracy <- dtModCMat$overall['Accuracy']
+
+## Generalized Boosting
+gbTrControl <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+gbMod <- train(classe ~ ., data = partTrain, method = "gbm", trControl = gbTrControl, verbose = FALSE)
+gbModPredict <- predict(gbMod, partTest)
+gbModCMat <- confusionMatrix(gbModPredict, partTest$classe)
+gbModAccuracy <- gbModCMat$overall['Accuracy']
+
+## Random Forest
+rfTrControl <- trainControl(method = "cv", number=3, verboseIter = FALSE)
+rfMod <- train(classe ~ ., data = partTrain, method ="rf", trControl = rfTrControl)
+rfModPredict <- predict(rfMod, partTest)
+rfModCMat <- confusionMatrix(rfModPredict, partTest$classe)
+rfModAccuracy <- rfModCMat$overall['Accuracy']
+
+## Results
+resultsMat <- cbind(dtModAccuracy, gbModAccuracy, rfModAccuracy)
+resultsMat
+```
+
+The Random Forest Model proved to be the most accurate at 99.66%. With this model, the expected out of sample error would be 0.34%. Due to these great results, this model will be selected to use on the Test Set.
+
+
+## Applying Model to Test Set
+
+Thirdly, we apply the chosen model on the Test Set and predict the class of the 20 cases.
+
+```{r warning = FALSE}
+predictTEST <- predict(rfMod, testSet)
+predictTEST
+```
+
+
+
